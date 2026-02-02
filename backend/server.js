@@ -36,15 +36,74 @@ port.on('open', () => {
 });
 
 // --- 3. DATA ENGINE (GPS PARSER) ---
+// --- 3. DATA ENGINE (GPS PARSER) ---
+// parser.on('data', async (line) => {
+//     const raw = line.trim();
+//     if (!raw || !raw.includes("&&")) return; // Only process GPS strings
+
+//     const p = raw.split(',');
+//     if (p.length < 10) return;
+
+//     const gps = {
+//         imei: p[1],
+//         status: p[6], 
+//         lat: parseFloat(p[7]),
+//         lng: parseFloat(p[8]),
+//         speed: parseInt(p[9]) || 0
+//     };
+
+//     if (gps.status === 'A') {
+//         try {
+//             const isNight = (new Date().getHours() >= 19 || new Date().getHours() < 6);
+
+//             // 1. Resolve Vehicle
+//             const [asset] = await db.execute(`
+//                 SELECT vehicle_id, vehicle_no FROM vehicles WHERE imei = ? LIMIT 1
+//             `, [gps.imei]);
+
+//             if (asset.length > 0) {
+//                 const { vehicle_id, vehicle_no } = asset[0];
+
+//                 // 2. Update Live Status (Marker)
+//                 await db.execute(`
+//                     INSERT INTO vehicle_status (vehicle_id, latitude, longitude, speed, last_ping) 
+//                     VALUES (?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE 
+//                     latitude=VALUES(latitude), longitude=VALUES(longitude), speed=VALUES(speed), last_ping=NOW()
+//                 `, [vehicle_id, gps.lat, gps.lng, gps.speed]);
+
+//                 // 3. Log Movement (Breadcrumb) - FIXED QUERY
+//                 // Note: Removed the 6th '?' because NOW() is hardcoded
+//                 await db.execute(`
+//                     INSERT INTO active_move (vehicle_id, lat, lng, speed, is_night_move, recorded_at) 
+//                     VALUES (?, ?, ?, ?, ?, NOW())
+//                 `, [vehicle_id, gps.lat, gps.lng, gps.speed, isNight]);
+
+//                 console.log(`\x1b[32m[SUCCESS]\x1b[0m ${vehicle_no} logged to active_move.`);
+                
+//                 broadcast({ ba: vehicle_no, lat: gps.lat, lng: gps.lng, speed: gps.speed });
+//             } else {
+//                 console.log(`\x1b[31m[REJECTED]\x1b[0m IMEI ${gps.imei} not linked to any vehicle.`);
+//             }
+//         } catch (err) { 
+//             console.error("\x1b[31m[DB ERROR]\x1b[0m:", err.message); 
+//         }
+//     }
+// });
 parser.on('data', async (line) => {
     const raw = line.trim();
     if (!raw) return;
 
+    // 1. Monitor Modem Traffic
+    console.log(`\x1b[90m[MODEM]: ${raw}\x1b[0m`);
+
+    // 2. Clear Buffer Notification
+    // If the modem says data is waiting, fetch it immediately
     if (raw.includes('+QIURC: "recv",0')) {
         sendAT("AT+QIRD=0,1500");
         return;
     }
 
+    // 3. Process GPS Data
     if (raw.includes("&&")) {
         const p = raw.split(',');
         if (p.length < 10) return;
@@ -59,39 +118,45 @@ parser.on('data', async (line) => {
 
         if (gps.status === 'A') {
             try {
-                const hour = new Date().getHours();
-                const isNight = (hour >= 19 || hour < 6);
+                const isNight = (new Date().getHours() >= 19 || new Date().getHours() < 6);
 
-                const [asset] = await db.execute(`
-                    SELECT v.vehicle_id, v.vehicle_no, u.unit_name 
-                    FROM vehicles v
-                    JOIN units u ON v.unit_id = u.unit_id
-                    WHERE v.imei = ? LIMIT 1
-                `, [gps.imei]);
+                const [asset] = await db.execute(
+                    `SELECT vehicle_id, vehicle_no FROM vehicles WHERE imei = ? LIMIT 1`, 
+                    [gps.imei]
+                );
 
                 if (asset.length > 0) {
-                    const { vehicle_id, vehicle_no, unit_name } = asset[0];
+                    const { vehicle_id, vehicle_no } = asset[0];
 
-                    // Update Live Status
-                    await db.execute(`
-                        INSERT INTO vehicle_status (vehicle_id, latitude, longitude, speed, last_ping) 
-                        VALUES (?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE 
-                        latitude=VALUES(latitude), longitude=VALUES(longitude), speed=VALUES(speed), last_ping=NOW()
-                    `, [vehicle_id, gps.lat, gps.lng, gps.speed]);
+                    // UPDATE BOTH TABLES
+                    await Promise.all([
+                        db.execute(`
+                            INSERT INTO vehicle_status (vehicle_id, latitude, longitude, speed, last_ping) 
+                            VALUES (?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE 
+                            latitude=VALUES(latitude), longitude=VALUES(longitude), speed=VALUES(speed), last_ping=NOW()
+                        `, [vehicle_id, gps.lat, gps.lng, gps.speed]),
+                        
+                        db.execute(`
+                            INSERT INTO active_move (vehicle_id, lat, lng, speed, is_night_move, recorded_at) 
+                            VALUES (?, ?, ?, ?, ?, NOW())
+                        `, [vehicle_id, gps.lat, gps.lng, gps.speed, isNight])
+                    ]);
 
-                    // Log Active Movement
-                    await db.execute(`
-                        INSERT INTO active_move (vehicle_id, lat, lng, speed, is_night_move) 
-                        VALUES (?, ?, ?, ?, ?)
-                    `, [vehicle_id, gps.lat, gps.lng, gps.speed, isNight]);
+                    console.log(`\x1b[32m[FEED OK]\x1b[0m ${vehicle_no} - Point Saved.`);
+                    
+                    broadcast({ ba: vehicle_no, lat: gps.lat, lng: gps.lng, speed: gps.speed });
 
-                    broadcast({ ba: vehicle_no, unit: unit_name, lat: gps.lat, lng: gps.lng, speed: gps.speed, isNight });
+                    // 4. THE FIX: Tell modem to move to the next packet in queue
+                    // Doing this after the DB write prevents the 5-packet freeze
+                    sendAT("AT+QIRD=0,1500"); 
+
                 }
-            } catch (err) { console.error("Data Engine Error:", err.message); }
+            } catch (err) { 
+                console.error("Data Engine Error:", err.message); 
+            }
         }
     }
 });
-
 // --- 4. API ENDPOINTS ---
 
 /** FLEET & DASHBOARD **/
@@ -152,6 +217,37 @@ app.post('/api/sanctions', async (req, res) => {
         res.status(201).json({ message: "Sanction Issued", id: result.insertId });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+// 3. UPDATE EXISTING SANCTION (The new PUT route)
+app.put('/api/sanctions/:id', async (req, res) => {
+    const { id } = req.params;
+    const { vehicle_id, route_from, route_to, start_datetime, end_datetime } = req.body;
+    try {
+        const [result] = await db.execute(`
+            UPDATE move_sanctions 
+            SET vehicle_id = ?, route_from = ?, route_to = ?, 
+                start_datetime = ?, end_datetime = ? 
+            WHERE sanction_id = ?
+        `, [vehicle_id, route_from, route_to, start_datetime, end_datetime, id]);
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: "Sanction record not found" });
+        }
+        res.json({ message: "Sanction Updated Successfully" });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 4. DELETE/REVOKE SANCTION (The new DELETE route)
+app.delete('/api/sanctions/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const [result] = await db.execute(
+            "DELETE FROM move_sanctions WHERE sanction_id = ?", 
+            [id]
+        );
+        res.json({ message: "Sanction Revoked and Deleted" });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 
 /** ALERTS & LOGS **/
 app.get('/api/sidebar/violations-alerts', async (req, res) => {
@@ -217,13 +313,80 @@ app.get('/api/sidebar/violations-alerts', async (req, res) => {
         res.status(500).json({ error: err.message }); 
     }
 });
+// app.get('/api/path/:vehicleId', async (req, res) => {
+//     const [rows] = await db.execute(`
+//         SELECT lat, lng, speed, recorded_at as time 
+//         FROM active_move 
+//         WHERE vehicle_id = ? 
+//         ORDER BY recorded_at ASC
+//     `, [req.params.vehicleId]);
+//     res.json(rows);
+// });
+
+
+// Ensure this matches: http://localhost:5000/api/path/:vehicleId
 app.get('/api/path/:vehicleId', async (req, res) => {
-    const [rows] = await db.execute(`
-        SELECT lat, lng, speed, recorded_at as time 
-        FROM active_move 
-        WHERE vehicle_id = ? 
-        ORDER BY recorded_at ASC
-    `, [req.params.vehicleId]);
-    res.json(rows);
+    try {
+        const [rows] = await db.execute(`
+            SELECT lat, lng, speed, recorded_at as time 
+            FROM active_move 
+            WHERE vehicle_id = ? 
+            ORDER BY recorded_at ASC
+        `, [req.params.vehicleId]);
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
+/** * ACTIVE MOVEMENT & REPLAY LOGIC 
+ * Drives the Map and Sidebar in the frontend
+ **/
+
+// 1. Get the list of sanctioned vehicles for the Sidebar
+app.get('/api/sidebar/move-sanctions', async (req, res) => {
+    try {
+        const [rows] = await db.execute(`
+            SELECT 
+                ms.vehicle_id, 
+                v.vehicle_no AS ba, 
+                u.unit_name AS unit, 
+                v.vehicle_type
+            FROM move_sanctions ms
+            JOIN vehicles v ON ms.vehicle_id = v.vehicle_id
+            JOIN units u ON v.unit_id = u.unit_id
+            WHERE ms.status = 'ACTIVE'
+        `);
+        console.log(`[REPLAY]: Serving ${rows.length} active sanctions.`);
+        res.json(rows);
+        console.log(rows);
+    } catch (err) {
+        console.error("SQL Error in move-sanctions:", err.message);
+        res.status(500).json({ error: "Database query failed" });
+    }
+});
+
+// 2. Get the full coordinate history for a specific vehicle's path
+app.get('/api/path/:vehicleId', async (req, res) => {
+    try {
+        const { vehicleId } = req.params;
+        const [rows] = await db.execute(`
+            SELECT 
+                lat, 
+                lng, 
+                speed, 
+                recorded_at as time 
+            FROM active_move 
+            WHERE vehicle_id = ? 
+            ORDER BY recorded_at ASC
+        `, [vehicleId]);
+
+        // Ensure we send an empty array instead of 404 if no path exists yet
+        res.json(rows || []);
+        console.log(rows);
+    } catch (err) {
+        console.error(`Error fetching path for ID ${req.params.vehicleId}:`, err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.listen(5000, () => console.log("Tactical VMS Server active on Port 5000"));

@@ -1,13 +1,13 @@
-import React, { useState } from "react";
-import { MapContainer, TileLayer, Polygon,Marker, CircleMarker, Tooltip, useMap } from "react-leaflet";
+import React, { useState, useEffect, useMemo } from "react";
+import { MapContainer, TileLayer, Polygon, Marker, CircleMarker, Tooltip, useMap } from "react-leaflet";
+import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import signalsLogo from "../assets/images/UnitLogo3.png"
- import jeepIconImg from "../assets/images/jeep.png";
- import Ton5Img from "../assets/images/5Ton.png";
 
- 
+// Assets
+import signalsLogo from "../assets/images/UnitLogo3.png";
+import jeepIconImg from "../assets/images/jeep.png";
+import Ton5Img from "../assets/images/5Ton.png";
 
-// Data from your KML
 const hierarchy = {
   "340 BDE": {
     color: "#ff4d4d",
@@ -52,227 +52,165 @@ const hierarchy = {
   }
 };
 
-function MapController({ activeUnit }) {
-  const map = useMap();
-  const view = activeUnit === "34 DIV" 
-    ? { center: [32.20, 73.20], zoom: 7 } 
-    : { center: hierarchy[activeUnit].locations[0].pos, zoom: 9 };
-  map.setView(view.center, view.zoom, { animate: true, duration: 1.5 });
-  return null;
-}
+// Define Icons
 const jeepIcon = new L.Icon({
   iconUrl: jeepIconImg,
-  iconSize: [38, 38],
-  iconAnchor: [24, 24],
-  popupAnchor: [0, -14],
+  iconSize: [35, 35],
+  iconAnchor: [17, 17],
 });
-const truckIcon = new L.Icon({
-  iconUrl:Ton5Img,
-  iconSize: [38, 38],
-  iconAnchor: [24, 24],
-  popupAnchor: [0, -14],
-});
-const fleetData = {
-  "BA-4501": { unit: "41 Sig Unit", type: "Single Cabin" },
-  "BA-8822": { unit: "55 Fd Arty", type: "Double Cabin" },
-  "BA-1203": { unit: "13 Engr", type: "5 Ton" },
-  "BA-9944": { unit: "8 PR", type: "Single Cabin" },
-  "BA-3315": { unit: "8 SR", type: "5 Ton" },
-  "BA-7766": { unit: "33 SR", type: "Double Cabin" },
-  "BA-1077": { unit: "10 PR", type: "Single Cabin" },
-  "BA-9708": { unit: "97 Ord", type: "5 Ton" },
-  "BA-5909": { unit: "59 S&T", type: "5 Ton" },
-};
-const generateVehiclesForAOR = (locations) => {
-  const offsets = [
-    [0.01, 0.01],
-    [-0.01, 0.008],
-    [0.008, -0.01],
-    [-0.008, -0.008],
-    [0.012, 0],
-    [0, 0.012],
-  ];
 
-  return Object.entries(fleetData).map(([ba, veh], idx) => {
-    const base = locations[idx % locations.length].pos;
-    const off = offsets[idx % offsets.length];
-    return {
-      ba,
-      ...veh,
-      pos: [base[0] + off[0], base[1] + off[1]],
-    };
-  });
-};
+const truckIcon = new L.Icon({
+  iconUrl: Ton5Img,
+  iconSize: [40, 40],
+  iconAnchor: [20, 20],
+});
+
+// View Controller
+function MapController({ activeUnit }) {
+  const map = useMap();
+  useEffect(() => {
+    if (activeUnit === "34 DIV") {
+      map.setView([32.20, 73.20], 7, { animate: true, duration: 1.5 });
+    } else if (hierarchy[activeUnit]) {
+      map.setView(hierarchy[activeUnit].locations[0].pos, 9, { animate: true, duration: 1.5 });
+    }
+  }, [activeUnit, map]);
+  return null;
+}
+
 export default function BlinkingTacticalMap() {
   const [activeUnit, setActiveUnit] = useState("34 DIV");
-const vehiclesByAOR = {};
-  Object.entries(hierarchy).forEach(([unit, data]) => {
-    vehiclesByAOR[unit] = generateVehiclesForAOR(data.locations);
-  });
+  const [fleet, setFleet] = useState([]);
+
+  // FETCH FROM DB (Synced with your server.js /api/fleet/status)
+  useEffect(() => {
+    const fetchFleetData = async () => {
+      try {
+        const res = await fetch('http://localhost:5000/api/fleet/status');
+        const data = await res.json();
+        setFleet(data);
+      } catch (err) {
+        console.error("Database Fetch Error:", err);
+      }
+    };
+
+    fetchFleetData();
+    const interval = setInterval(fetchFleetData, 5000); // Poll every 5 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  // Filter fleet based on selection
+  const filteredFleet = useMemo(() => {
+    if (activeUnit === "34 DIV") return fleet;
+    return fleet.filter(v => v.unit_name === activeUnit);
+  }, [fleet, activeUnit]);
 
   return (
     <div className="vh-100 vw-100 bg-dark position-relative overflow-hidden">
       
       {/* TOP NAV BAR */}
- {/* TOP NAV BAR */}
-<div className="position-absolute top-0 start-0 w-100" style={{ zIndex: 1000 }}>
-  {/* The 'vw-100' and 'overflow-hidden' on the parent container (BlinkingTacticalMap) 
-      combined with 'w-100' here ensures the bar never exceeds the screen width. */}
-  <div className="d-flex align-items-center justify-content-between px-3 py-2 shadow-lg border-bottom border-secondary" 
-       style={{ 
-         background: 'rgba(0, 0, 0, 0)', 
-         backdropFilter: 'blur(2px)', 
-         width: '100%',
-         height: '60px' 
-       }}>
-    
-    {/* LEFT SECTION: Title and Unit Selection */}
-    <div className="d-flex align-items-center gap-3 overflow-hidden">
-      <div className="border-end border-black border-2 pe-3 flex-shrink-0">
-        {/* <h6 className="text-success fw-bold mb-0">34 DIV AOR</h6> */}
-        <img 
-        src={signalsLogo} 
-        alt="41 Signals" 
-        style={{ 
-          height: "35px", 
-          objectFit: "contain",
-          filter: "grayscale(100%) brightness(100) invert(1)", 
-          // opacity: 
-        }} 
-      />
+      <div className="position-absolute top-0 start-0 w-100" style={{ zIndex: 1000 }}>
+        <div className="d-flex align-items-center justify-content-between px-3 py-2 shadow-lg" 
+             style={{ background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(10px)', height: '60px' }}>
+          
+          <div className="d-flex align-items-center gap-3">
+            <img src={signalsLogo} alt="Logo" style={{ height: "35px", filter: "brightness(0) invert(1)" }} />
+            <div className="vr text-white opacity-25 mx-2"></div>
+            <div className="d-flex gap-2">
+              {Object.keys(hierarchy).reverse().map((unit) => (
+                <button
+                  key={unit}
+                  onClick={() => setActiveUnit(unit)}
+                  className={`btn btn-sm px-3 rounded-2 d-flex align-items-center gap-2 transition-all ${
+                    activeUnit === unit ? 'btn-success shadow' : 'text-white border-0 opacity-50'
+                  }`}
+                  style={{ fontSize: '11px', fontWeight: '700' }}
+                >
+                  <div className={activeUnit === unit ? "blink-dot" : ""} 
+                       style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: hierarchy[unit].color }}></div>
+                  {unit}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Button Group */}
-      <div className="d-flex gap-2  no-scrollbar">
-        {Object.keys(hierarchy).reverse().map((unit) => (
-          <button
-            key={unit}
-            onClick={() => setActiveUnit(unit)}
-            className={`btn btn-sm px-3 py-2 rounded-2 d-flex align-items-center gap-2 flex-shrink-0 transition-all ${
-              activeUnit === unit ? 'bg-success text-white shadow' : 'text-secondary border-0'
-            }`}
-            style={{ fontSize: '11px', fontWeight: '700' }}
-          >
-            <div className={activeUnit === unit ? "blink-dot" : ""} style={{ 
-              width: '8px', height: '8px', borderRadius: '50%', 
-              backgroundColor: activeUnit === unit ? '#fff' : hierarchy[unit].color 
-            }}></div>
-            {unit}
-          </button>
-        ))}
-         
-      </div>
-    </div>
-
-    {/* RIGHT SECTION: Logo */}
-   
-  </div>
-</div>
-
-      <MapContainer 
-        center={[32.5, 73.0]} 
-        zoom={7} 
-        style={{ height: "100%", width: "100%" }}
-        zoomControl={false}
-      >
-        {/* <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" /> */}
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+      <MapContainer center={[32.5, 73.0]} zoom={19} style={{ height: "100%", width: "100%" }} zoomControl={false}>
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         <MapController activeUnit={activeUnit} />
 
+        {/* Tactical Boundaries */}
         {Object.entries(hierarchy).map(([unitName, data]) => {
           const isVisible = activeUnit === "34 DIV" || activeUnit === unitName;
-          
           return (
             <React.Fragment key={unitName}>
-              {/* Boundaries */}
               {unitName !== "34 DIV" && (
                 <Polygon 
                   positions={data.locations.map(l => l.pos)}
                   pathOptions={{
-                    color: isVisible ? data.color : '#888',
+                    color: isVisible ? data.color : '#444',
                     fillColor: isVisible ? data.color : 'transparent',
-                    fillOpacity: activeUnit === unitName ? 0.15 : 0.05,
+                    fillOpacity: activeUnit === unitName ? 0.1 : 0.02,
                     weight: isVisible ? 2 : 1,
                     dashArray: isVisible ? '0' : '5, 10'
                   }}
                 />
               )}
-
-              {/* Blinking Markers */}
               {data.locations.map((loc, i) => (
                 <CircleMarker 
-                  key={i}
-                  center={loc.pos}
-                  radius={activeUnit === unitName || activeUnit === "34 DIV" ? 7 : 4}
+                  key={i} center={loc.pos} radius={isVisible ? 6 : 3}
                   className={isVisible ? "tactical-node-blink" : ""}
-                  pathOptions={{
-                    color: isVisible ? data.color : '#444',
-                    fillColor: isVisible ? data.color : '#222',
-                    fillOpacity: 1,
-                    weight: 2
-                  }}
+                  pathOptions={{ color: isVisible ? data.color : '#555', fillOpacity: 1 }}
                 >
-                  <Tooltip permanent direction="top" offset={[0, -10]} className="tactical-tooltip">
-                    {loc.name}
-                  </Tooltip>
+                  <Tooltip direction="top" offset={[0, -5]} className="tactical-tooltip">{loc.name}</Tooltip>
                 </CircleMarker>
               ))}
             </React.Fragment>
           );
         })}
-          {Object.entries(vehiclesByAOR).map(([unit, vehicles]) => {
-          const isVisible = activeUnit === "34 DIV" || activeUnit === unit;
-          if (!isVisible) return null;
 
-          return vehicles.map((veh) => (
+        {/* LIVE DATABASE MARKERS */}
+        {filteredFleet.map((veh) => {
+          // Verify vehicle has valid coordinates before rendering
+          if (!veh.latitude || !veh.longitude) return null;
+
+          return (
             <Marker
-              key={veh.ba}
-              position={veh.pos}
-              icon={veh.type.includes("5 Ton") ? truckIcon : jeepIcon}
+              key={veh.vehicle_no}
+              position={[parseFloat(veh.latitude), parseFloat(veh.longitude)]}
+              icon={veh.vehicle_type?.includes("5 Ton") ? truckIcon : jeepIcon}
             >
-              <Tooltip>
-                <strong>{veh.ba}</strong>
-                <br />
-                {veh.type}
-                <br />
-                {veh.unit}
+              <Tooltip direction="right" offset={[15, 0]}>
+                <div style={{ fontSize: '11px', minWidth: '100px' }}>
+                  <div className="fw-bold text-primary border-bottom mb-1">{veh.vehicle_no}</div>
+                  <div>Unit: {veh.unit_name}</div>
+                  <div>Type: {veh.vehicle_type}</div>
+                  <div className={veh.speed > 0 ? "text-success fw-bold" : "text-muted"}>
+                    {veh.speed > 0 ? `Speed: ${veh.speed} km/h` : "Status: Parked"}
+                  </div>
+                </div>
               </Tooltip>
             </Marker>
-          ));
+          );
         })}
       </MapContainer>
 
       <style>{`
-        /* Blinking Animation for Map Icons */
-        .tactical-node-blink {
-          animation: node-pulse 1.5s infinite ease-in-out;
-        }
-
+        .tactical-node-blink { animation: node-pulse 2s infinite; }
         @keyframes node-pulse {
-          0% { stroke-width: 2; stroke-opacity: 1; fill-opacity: 1; }
-          50% { stroke-width: 8; stroke-opacity: 0.3; fill-opacity: 0.7; }
-          100% { stroke-width: 2; stroke-opacity: 1; fill-opacity: 1; }
+          0% { stroke-width: 2; stroke-opacity: 1; }
+          50% { stroke-width: 10; stroke-opacity: 0.3; }
+          100% { stroke-width: 2; stroke-opacity: 1; }
         }
-
-        /* Small Blink for Nav Buttons */
-        .blink-dot {
-          animation: simple-blink 1s infinite;
-        }
-
-        @keyframes simple-blink {
-          0% { opacity: 1; }
-          50% { opacity: 0.3; }
-          100% { opacity: 1; }
-        }
-
+        .blink-dot { animation: simple-blink 1s infinite; }
+        @keyframes simple-blink { 50% { opacity: 0.2; } }
         .tactical-tooltip {
-          background: rgba(0, 0, 0, 0.8) !important;
-          border: 1px solid rgba(255, 255, 255, 0.1) !important;
-          color: #fff !important;
-          font-weight: 600;
+          background: #1a1a1a !important;
+          border: 1px solid #444 !important;
+          color: #00ff00 !important;
+          font-family: monospace;
           font-size: 10px !important;
-          padding: 2px 6px !important;
-          border-radius: 4px;
         }
       `}</style>
     </div>

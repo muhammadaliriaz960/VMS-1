@@ -1,153 +1,163 @@
-import React, { useState, useEffect } from "react";
-import { Filter, FileDown, MapPin } from "lucide-react";
+import React, { useState, useEffect, useMemo } from "react";
+import { Filter, FileDown, MapPin, Loader2 } from "lucide-react";
 import jsPDF from "jspdf";
-import "jspdf-autotable";
+import autoTable from "jspdf-autotable";
 
 export default function FleetStatus() {
   const [fleet, setFleet] = useState([]);
-  const [filteredFleet, setFilteredFleet] = useState([]);
+  const [units, setUnits] = useState([]);
   const [selectedUnit, setSelectedUnit] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All"); // Added state
+  const [loading, setLoading] = useState(true);
 
-  // Actual Units from your fleetData
-  const unitList = [
-    "All", "41 Sig Unit", "55 Fd Arty", "13 Engr", 
-    "8 PR", "8 SR", "33 SR", "10 PR", "97 Ord", "59 S&T"
-  ];
-
-  // 1. Fetch live data from backend
-  // inside FleetStatus.jsx
-useEffect(() => {
-    const fetchFleet = async () => {
-        try {
-            const res = await fetch('http://localhost:5000/api/fleet/status');
-            const data = await res.json();
-            
-            // CRITICAL: Overwrite the state entirely with 'data' 
-            // Do not use setFleet(prev => [...prev, ...data])
-            setFleet(data); 
-            
-            // If the user hasn't selected a specific unit, update the display list too
-            if (selectedUnit === "All") {
-                setFilteredFleet(data);
-            }
-        } catch (err) {
-            console.error("Error fetching fleet:", err);
-        }
-    };
-
-    fetchFleet();
-    const interval = setInterval(fetchFleet, 5000); // Polling every 5 seconds
-    
-    return () => clearInterval(interval); // Cleanup on unmount
-}, [selectedUnit]); // Re-run if selectedUnit changes to keep filter consistent
-
-  // 2. Handle Filtering
+  // 1. Fetching Logic (unchanged)
   useEffect(() => {
-    if (selectedUnit === "All") {
-      setFilteredFleet(fleet);
-    } else {
-      setFilteredFleet(fleet.filter(v => v.unit_name === selectedUnit));
-    }
-  }, [selectedUnit, fleet]);
+    const fetchInitialData = async () => {
+      try {
+        const [fleetRes, unitsRes] = await Promise.all([
+          fetch('http://localhost:5000/api/fleet/status'),
+          fetch('http://localhost:5000/api/units_full')
+        ]);
+        setFleet(await fleetRes.json());
+        setUnits(await unitsRes.json());
+        setLoading(false);
+      } catch (err) {
+        console.error("Init Error:", err);
+        setLoading(false);
+      }
+    };
+    fetchInitialData();
+    const interval = setInterval(async () => {
+      const res = await fetch('http://localhost:5000/api/fleet/status');
+      setFleet(await res.json());
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
-  // 3. Export PDF Function
+  // 2. Filter Logic (Defined inside the component)
+  const filteredFleet = useMemo(() => {
+    let temp = fleet;
+    if (selectedUnit !== "All") {
+        temp = temp.filter(v => v.unit_name === selectedUnit);
+    }
+    if (statusFilter === "Moving") {
+        return temp.filter(v => v.speed > 0);
+    } else if (statusFilter === "Parked") {
+        return temp.filter(v => v.speed === 0 || !v.speed);
+    }
+    return temp;
+  }, [fleet, selectedUnit, statusFilter]);
+
+  // 3. Export PDF Logic (Defined inside the component so it can see filteredFleet)
   const exportPDF = () => {
     const doc = new jsPDF();
-    doc.text(`Fleet Status Report - ${selectedUnit}`, 14, 15);
     
-    const tableColumn = ["BA Number", "Unit", "Type", "Status", "Speed", "Location"];
+    // Add Report Branding & Filter Context
+    doc.setFontSize(18);
+    doc.text("Fleet Status Report", 14, 15);
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 22);
+    doc.text(`Filters Applied - Unit: ${selectedUnit} | Status: ${statusFilter}`, 14, 27);
+
+    // Map ONLY the filtered data to table rows
     const tableRows = filteredFleet.map(v => [
       v.vehicle_no,
       v.unit_name,
       v.vehicle_type,
       v.speed > 0 ? "Moving" : "Parked",
       `${v.speed || 0} km/h`,
-      `${v.latitude}, ${v.longitude}`
+      `${Number(v.latitude).toFixed(4)}, ${Number(v.longitude).toFixed(4)}`
     ]);
 
-    doc.autoTable(tableColumn, tableRows, { startY: 20 });
-    doc.save(`Fleet_Report_${selectedUnit}_${new Date().toLocaleDateString()}.pdf`);
+    autoTable(doc, {
+      head: [["BA Number", "Unit", "Type", "Status", "Speed", "Coordinates"]],
+      body: tableRows,
+      startY: 35,
+      theme: 'striped',
+      headStyles: { fillColor: [33, 37, 41] }, // Dark theme for headers
+      styles: { fontSize: 9 }
+    });
+
+    doc.save(`Fleet_Report_${selectedUnit}_${statusFilter}.pdf`);
   };
 
+  if (loading) return (
+    <div className="d-flex justify-content-center align-items-center vh-100">
+      <Loader2 className="animate-spin text-primary" size={40} />
+    </div>
+  );
+
   return (
-    <div className="p-4 animate-in fade-in duration-500">
+    <div className="p-4">
+      {/* ... Your JSX Headers ... */}
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
           <h3 className="fw-bold mb-0">Fleet Inventory</h3>
-          <p className="text-muted small">Real-time status of 34 DIV assets</p>
+          <p className="text-muted small">Live asset monitoring</p>
         </div>
         
         <div className="d-flex gap-2">
-          {/* Unit Filter Dropdown */}
-          <div className="dropdown">
-            <button className="btn btn-outline-secondary btn-sm d-flex align-items-center gap-2 dropdown-toggle" 
-                    type="button" data-bs-toggle="dropdown">
-              <Filter size={16} /> {selectedUnit}
-            </button>
-            <ul className="dropdown-menu shadow-sm border-0">
-              {unitList.map(unit => (
-                <li key={unit}>
-                  <button className="dropdown-item small" onClick={() => setSelectedUnit(unit)}>
-                    {unit}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
+           {/* UNIT FILTER */}
+           <div className="dropdown">
+             <button className="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+               <Filter size={16} className="me-1"/> {selectedUnit}
+             </button>
+             <ul className="dropdown-menu">
+               <li><button className="dropdown-item" onClick={() => setSelectedUnit("All")}>All Units</button></li>
+               {units.map(u => (
+                 <li key={u.unit_id}><button className="dropdown-item" onClick={() => setSelectedUnit(u.unit_name)}>{u.unit_name}</button></li>
+               ))}
+             </ul>
+           </div>
 
-          <button onClick={exportPDF} className="btn btn-primary btn-sm d-flex align-items-center gap-2">
-            <FileDown size={16} /> Export Report
-          </button>
+           {/* STATUS FILTER */}
+           <div className="dropdown">
+             <button className="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+               <Filter size={16} className="me-1"/> Status: {statusFilter}
+             </button>
+             <ul className="dropdown-menu">
+               <li><button className="dropdown-item" onClick={() => setStatusFilter("All")}>All</button></li>
+               <li><button className="dropdown-item text-success" onClick={() => setStatusFilter("Moving")}>Moving</button></li>
+               <li><button className="dropdown-item text-warning" onClick={() => setStatusFilter("Parked")}>Parked</button></li>
+             </ul>
+           </div>
+
+           <button onClick={exportPDF} className="btn btn-primary btn-sm d-flex align-items-center gap-2">
+             <FileDown size={16} /> Export
+           </button>
         </div>
       </div>
 
-      <div className="card border-0 shadow-sm">
+      {/* ... Table Section (using filteredFleet.map) ... */}
+      <div className="card border-0 shadow-sm rounded-3">
         <div className="table-responsive">
           <table className="table table-hover align-middle mb-0">
-            <thead className="bg-light">
-              <tr style={{ fontSize: '11px' }} className="text-muted text-uppercase">
+            <thead className="bg-light text-muted small text-uppercase">
+              <tr>
                 <th className="ps-4">BA Number</th>
-                <th>Unit / Brigade</th>
+                <th>Unit</th>
                 <th>Status</th>
-                <th>Last Coordinates</th>
-                <th>Speed</th>
-                <th className="pe-4">Health</th>
+                <th>Location</th>
+                <th className="pe-4 text-end">Speed</th>
               </tr>
             </thead>
             <tbody>
               {filteredFleet.map((veh) => (
-                <tr key={veh.vehicle_no} style={{ fontSize: '13px' }}>
+                <tr key={veh.vehicle_no}>
                   <td className="ps-4 fw-bold text-primary">{veh.vehicle_no}</td>
+                  <td>{veh.unit_name}</td>
                   <td>
-                    <span className="fw-medium">{veh.unit_name}</span>
-                    <div className="text-muted" style={{fontSize: '10px'}}>{veh.vehicle_type}</div>
-                  </td>
-                  <td>
-                    <span className={`badge rounded-pill ${
-                      veh.speed > 0 ? 'bg-success-subtle text-success' : 'bg-warning-subtle text-warning'
-                    }`}>
+                    <span className={`badge rounded-pill ${veh.speed > 0 ? 'bg-success-subtle text-success' : 'bg-warning-subtle text-warning'}`}>
                       {veh.speed > 0 ? 'Moving' : 'Parked'}
                     </span>
                   </td>
-                  {/* Change this line in your FleetStatus.jsx */}
-<td className="text-muted small">
-  <MapPin size={12} className="me-1 text-danger"/>
-  {Number(veh.latitude || 0).toFixed(4)}, {Number(veh.longitude || 0).toFixed(4)}
-</td>
-                  <td className="fw-bold">{veh.speed || 0} <span className="small fw-normal text-muted">km/h</span></td>
-                  <td className="pe-4">
-                    <div className="progress" style={{ height: '6px', width: '80px' }}>
-                      <div className={`progress-bar ${veh.speed > 80 ? 'bg-danger' : 'bg-success'}`} 
-                           style={{ width: '100%' }}></div>
-                    </div>
-                  </td>
+                  <td className="text-muted small">{Number(veh.latitude).toFixed(4)}, {Number(veh.longitude).toFixed(4)}</td>
+                  <td className="pe-4 text-end fw-bold">{veh.speed || 0} km/h</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {filteredFleet.length === 0 && (
-            <div className="p-5 text-center text-muted">No vehicles found for {selectedUnit}</div>
-          )}
         </div>
       </div>
     </div>

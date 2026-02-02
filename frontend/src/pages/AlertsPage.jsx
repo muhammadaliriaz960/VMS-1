@@ -76,7 +76,7 @@ export default function AlertsPage() {
                 <th>BA Number / Unit</th>
                 <th>Violation Type</th>
                 <th>Details</th>
-                <th>Status</th>
+                {/* <th>Status</th> */}
                 {/* <th className="text-end pe-4">Actions</th> */}
               </tr>
             </thead>
@@ -107,9 +107,9 @@ export default function AlertsPage() {
                   <td className="text-muted small" style={{ maxWidth: '300px' }}>
                     {alert.details}
                   </td>
-                  <td>
+                  {/* <td>
                     <span className="badge bg-light text-danger border border-danger-subtle">Unresolved</span>
-                  </td>
+                  </td> */}
                   <td className="text-end pe-4">
                     {/* <button className="btn btn-outline-primary btn-sm me-2">Investigate</button> */}
                     {/* <button 

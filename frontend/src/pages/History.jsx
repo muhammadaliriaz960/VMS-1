@@ -88,7 +88,7 @@ export default function MileageReport() {
                 <th>Last Point</th>
                 <th>Total Distance</th>
                 <th>Avg Speed</th>
-                <th>Status</th>
+                {/* <th>Status</th> */}
               </tr>
             </thead>
             <tbody>
@@ -103,9 +103,9 @@ export default function MileageReport() {
                   <tr key={i} style={{ fontSize: '14px' }}>
                     <td className="ps-4">
                       <div className="d-flex align-items-center gap-2">
-                        <div className="bg-primary-subtle p-1 rounded">
+                        {/* <div className="bg-primary-subtle p-1 rounded">
                           <Gauge size={14} className="text-primary" />
-                        </div>
+                        </div> */}
                         <span className="fw-bold">{item.ba}</span>
                       </div>
                     </td>
@@ -118,9 +118,9 @@ export default function MileageReport() {
                     </td>
                     <td className="fw-bold text-dark">{item.total} km</td>
                     <td>{item.currentSpeed}</td>
-                    <td>
+                    {/* <td>
                       <span className="badge bg-success-subtle text-success border">Live</span>
-                    </td>
+                    </td> */}
                   </tr>
                 ))
               )}

@@ -133,7 +133,7 @@ useEffect(() => {
           {flightPath.length > 0 ? (
             <MapContainer 
   center={[currentPos.lat, currentPos.lng]} 
-  zoom={18} 
+  zoom={19} 
   className="h-100 w-100"
 >
   <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />

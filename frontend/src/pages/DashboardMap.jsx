@@ -101,7 +101,7 @@ export default function BlinkingTacticalMap() {
 
   // Filter fleet based on selection
   const filteredFleet = useMemo(() => {
-    if (activeUnit === "34 DIV") return fleet;
+    if (activeUnit === "34 DIV" || activeUnit === "34 DIV ARTY" || activeUnit==="340 BDE" || activeUnit==="341 BDE" || activeUnit==="342 BDE") return fleet;
     return fleet.filter(v => v.unit_name === activeUnit);
   }, [fleet, activeUnit]);
 
@@ -136,7 +136,7 @@ export default function BlinkingTacticalMap() {
         </div>
       </div>
 
-      <MapContainer center={[32.5, 73.0]} zoom={19} style={{ height: "100%", width: "100%" }} zoomControl={false}>
+      <MapContainer center={[32.5, 73.0]} zoom={18} style={{ height: "100%", width: "100%" }} zoomControl={false}>
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         <MapController activeUnit={activeUnit} />
 

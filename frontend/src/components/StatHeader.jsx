@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import signalsLogo from "../assets/images/UnitLogo3.png";
+import { API_URL } from '../config';
 
 export default function StatHeader() {
   const [data, setData] = useState({ total: 0, active: 0, faulty: 0, violations: 0 });
@@ -10,8 +11,8 @@ export default function StatHeader() {
     const fetchStats = async () => {
       try {
         const [fleetRes, alertRes] = await Promise.all([
-          fetch('http://localhost:5000/api/fleet/status'),
-          fetch('http://localhost:5000/api/sidebar/violations-alerts')
+          fetch(`${API_URL}/api/fleet/status`),
+          fetch(`${API_URL}/api/sidebar/violations-alerts`)
         ]);
 
         const fleet = await fleetRes.json();
@@ -68,11 +69,16 @@ export default function StatHeader() {
     <div className="bg-white border-bottom shadow-sm p-3 d-flex align-items-center justify-content-between">
       <div className="d-flex gap-4">
         {loading ? (
-          <div className="text-muted small"><Loader2 size={16} className="animate-spin me-2"/>Syncing...</div>
+          <div className="text-muted small">
+            <Loader2 size={16} className="animate-spin me-2" />
+            Syncing...
+          </div>
         ) : (
           stats.map((stat, i) => (
             <div key={i} className="border-end pe-4 last-child-no-border">
-              <div className="text-muted text-uppercase fw-bold" style={{ fontSize: '10px' }}>{stat.label}</div>
+              <div className="text-muted text-uppercase fw-bold" style={{ fontSize: "10px" }}>
+                {stat.label}
+              </div>
               <div className={`fs-4 fw-bold ${stat.color}`}>{stat.value}</div>
             </div>
           ))

@@ -1,0 +1,9 @@
+{
+  "appId": "com.vms.app",
+  "appName": "VMS",
+  "webDir": "dist",
+  "server": {
+    "cleartext": true,
+    "androidScheme": "http"
+  }
+}

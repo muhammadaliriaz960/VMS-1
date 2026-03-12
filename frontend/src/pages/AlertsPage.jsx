@@ -1,15 +1,58 @@
 import React, { useState, useEffect } from "react";
-import { AlertTriangle, ShieldAlert, Clock, CheckCircle, MapPin, Loader2 } from "lucide-react";
+import { AlertTriangle, ShieldAlert, Clock, CheckCircle, Loader2 } from "lucide-react";
+import { playBeep, startContinuousBeep, stopContinuousBeep } from "../utils/beep";
+import { API_URL } from '../config';
 
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [beepInterval, setBeepInterval] = useState(null);
+  const [lastAlertCount, setLastAlertCount] = useState(0);
 
   const fetchAlerts = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/sidebar/violations-alerts');
+      const res = await fetch(`${API_URL}/api/sidebar/violations-alerts`);
       const data = await res.json();
+      
+      // Get the last known alert count from localStorage
+      const storedCount = parseInt(localStorage.getItem('lastAlertCount') || '0');
+      
+      // Only play beep for NEW alerts that haven't been seen yet
+      if (data.length > storedCount) {
+        const newAlerts = data.slice(storedCount);
+        const hasCriticalAlert = newAlerts.some(alert => 
+          alert.alert_type === 'PANIC' || alert.alert_type === 'OVERSPEED' || alert.alert_type === 'UNSANCTIONED_MOVE' || alert.alert_type === 'POWER_CUT'
+        );
+        
+        if (hasCriticalAlert) {
+          // Stop any existing continuous beep before starting a new one
+          if (beepInterval) {
+            stopContinuousBeep(beepInterval);
+            setBeepInterval(null);
+          }
+          
+          const hasPanic = newAlerts.some(alert => alert.alert_type === 'PANIC');
+          if (hasPanic) {
+            // Play 2 beeps for panic
+            playBeep('panic');
+            const intervalId = startContinuousBeep('panic');
+            setBeepInterval(intervalId);
+          } else {
+            const hasOverspeed = newAlerts.some(alert => alert.alert_type === 'OVERSPEED');
+            if (hasOverspeed) {
+              // Play 3 beeps for overspeed
+              playBeep('overspeed');
+            } else {
+              playBeep('alert'); // For unsanctioned movement
+            }
+          }
+        }
+      }
+      
+      // Update the stored count to current alert count
+      localStorage.setItem('lastAlertCount', data.length.toString());
       setAlerts(data);
+      setLastAlertCount(data.length);
       setLoading(false);
     } catch (err) {
       console.error("Fetch alerts error:", err);
@@ -18,20 +61,34 @@ export default function AlertsPage() {
   };
 
   const resolveAlert = async (id) => {
-    // In a real app, you'd call a PUT/PATCH endpoint here
-    // For now, we'll filter it out locally to show the UI response
     setAlerts(prev => prev.filter(a => a.alert_id !== id));
     alert(`Alert ${id} marked as resolved in HQ Log.`);
   };
 
+  // Clear notification badge when component mounts
   useEffect(() => {
+    // Clear any stored notification count
+    localStorage.setItem('alertNotificationCount', '0');
+    
     fetchAlerts();
     const interval = setInterval(fetchAlerts, 10000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (beepInterval) {
+        stopContinuousBeep(beepInterval);
+      }
+    };
   }, []);
 
+  // Reset notification flag when alerts are manually refreshed
+  const handleRefresh = () => {
+    // Clear the stored count to allow beeping for new alerts
+    localStorage.removeItem('lastAlertCount');
+    fetchAlerts();
+  };
+
   // Calculate stats from live data
-  const criticalCount = alerts.filter(a => a.alert_type === 'SOS_TRIGGER' || a.alert_type === 'GEOFENCE_EXIT').length;
+  const criticalCount = alerts.filter(a => a.alert_type === 'PANIC' || a.alert_type === 'OVERSPEED' || a.alert_type === 'POWER_CUT').length;
 
   return (
     <div className="p-4" style={{ animation: "fadeIn 0.4s ease-out" }}>
@@ -42,7 +99,7 @@ export default function AlertsPage() {
           <p className="text-muted small mb-0">Live log of disciplinary and security breaches across all units.</p>
         </div>
         <div className="d-flex gap-2">
-          <button className="btn btn-outline-danger btn-sm px-3" onClick={fetchAlerts}>Refresh Feed</button>
+          <button className="btn btn-outline-danger btn-sm px-3" onClick={handleRefresh}>Refresh Feed</button>
           <button className="btn btn-dark btn-sm px-3">Download Log</button>
         </div>
       </div>
@@ -71,19 +128,12 @@ export default function AlertsPage() {
         <div className="table-responsive">
           <table className="table table-hover align-middle mb-0">
             <thead className="bg-light">
-              <tr className="text-muted small text-uppercase" style={{ fontSize: '11px' }}>
-                <th className="ps-4">Timestamp</th>
-                <th>BA Number / Unit</th>
-                <th>Violation Type</th>
-                <th>Details</th>
-                {/* <th>Status</th> */}
-                {/* <th className="text-end pe-4">Actions</th> */}
-              </tr>
+              <tr className="text-muted small text-uppercase" style={{ fontSize: '11px' }}><th className="ps-4">Timestamp</th><th>BA Number / Unit</th><th>Violation Type</th><th>Details</th><th>Location</th></tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="text-center py-5"><Loader2 className="animate-spin" /></td>
+                  <td colSpan="5" className="text-center py-5"><Loader2 className="animate-spin" /></td>
                 </tr>
               ) : alerts.length > 0 ? alerts.map((alert) => (
                 <tr key={alert.alert_id} style={{ fontSize: '14px' }}>
@@ -93,36 +143,35 @@ export default function AlertsPage() {
                     </div>
                   </td>
                   <td>
-                    <div className="fw-bold text-dark">{alert.ba}</div>
+                    <div className="fw-bold text-dark">
+                      {alert.ba}
+                      {(alert.alert_type === 'OVERSPEED' || alert.alert_type === 'POWER_CUT') && (
+                        <span className="ms-1" style={{ color: "#dc2626", fontSize: "10px" }}>⚠️</span>
+                      )}
+                    </div>
                     <div className="text-muted small">{alert.unit}</div>
                   </td>
                   <td>
                     <span className={`badge rounded-pill ${
-                      alert.alert_type === 'SOS_TRIGGER' ? 'bg-danger' : 
-                      alert.alert_type === 'OVERSPEED' ? 'bg-warning text-dark' : 'bg-secondary'
+                      alert.alert_type === 'PANIC' ? 'bg-danger' :
+                      alert.alert_type === 'OVERSPEED' ? 'bg-warning text-dark' : 
+                      alert.alert_type === 'UNSANCTIONED_MOVE' ? 'bg-info text-white' : 
+                      alert.alert_type === 'POWER_CUT' ? 'bg-danger border border-white' : 'bg-secondary'
                     }`}>
-                      {alert.alert_type}
+                      {alert.alert_type === 'UNSANCTIONED_MOVE' ? 'UNAUTHORIZED MOVE' : 
+                       alert.alert_type === 'POWER_CUT' ? 'EXTERNAL POWER CUT' : alert.alert_type}
                     </span>
                   </td>
                   <td className="text-muted small" style={{ maxWidth: '300px' }}>
                     {alert.details}
                   </td>
-                  {/* <td>
-                    <span className="badge bg-light text-danger border border-danger-subtle">Unresolved</span>
-                  </td> */}
-                  <td className="text-end pe-4">
-                    {/* <button className="btn btn-outline-primary btn-sm me-2">Investigate</button> */}
-                    {/* <button 
-                      className="btn btn-success btn-sm text-white" 
-                      onClick={() => resolveAlert(alert.alert_id)}
-                    >
-                      <CheckCircle size={14} />
-                    </button> */}
+                  <td className="text-muted small" style={{ maxWidth: '300px' }}>
+                    {alert.location_name || 'N/A'}
                   </td>
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan="6" className="text-center py-5 text-muted">No active violations detected. System clear.</td>
+                  <td colSpan="5" className="text-center py-5 text-muted">No active violations detected. System clear.</td>
                 </tr>
               )}
             </tbody>

@@ -1,5 +1,6 @@
-import React from "react";
-import { ShieldAlert, BatteryWarning, ZapOff, Bell, MapPin, Phone } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { ShieldAlert, BatteryWarning, ZapOff, Bell, MapPin, Phone, VolumeX, Volume2 } from "lucide-react";
+import { playBeep, startContinuousBeep, stopContinuousBeep } from "../utils/beep";
 
 const criticalIncidents = [
   { id: 1, ba: "34-A-1234", unit: "HQ 34 DIV", type: "PANIC BUTTON", time: "2 Mins Ago", loc: "Sector B-2", battery: "85%" },
@@ -7,6 +8,45 @@ const criticalIncidents = [
 ];
 
 export default function PanicList() {
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [beepInterval, setBeepInterval] = useState(null);
+
+  // Play beep on component mount if there are critical incidents
+  useEffect(() => {
+    if (criticalIncidents.length > 0 && soundEnabled) {
+      // Start continuous beep for panic alerts
+      const hasPanicAlert = criticalIncidents.some(incident => incident.type === "PANIC BUTTON");
+      if (hasPanicAlert) {
+        const intervalId = startContinuousBeep('panic');
+        setBeepInterval(intervalId);
+      } else {
+        // Single beep for other alerts
+        playBeep('alert');
+      }
+    }
+
+    // Cleanup beep on unmount
+    return () => {
+      if (beepInterval) {
+        stopContinuousBeep(beepInterval);
+      }
+    };
+  }, []);
+
+  const toggleSound = () => {
+    setSoundEnabled(!soundEnabled);
+    if (soundEnabled && beepInterval) {
+      stopContinuousBeep(beepInterval);
+      setBeepInterval(null);
+    } else if (!soundEnabled && criticalIncidents.length > 0) {
+      const hasPanicAlert = criticalIncidents.some(incident => incident.type === "PANIC BUTTON");
+      if (hasPanicAlert) {
+        const intervalId = startContinuousBeep('panic');
+        setBeepInterval(intervalId);
+      }
+    }
+  };
+
   return (
     <div className="p-4" style={{ animation: "fadeIn 0.3s ease-in" }}>
       {/* Emergency Header */}
@@ -17,8 +57,18 @@ export default function PanicList() {
           </h3>
           <p className="text-muted small">Live monitoring of SOS signals and hardware tampering alerts.</p>
         </div>
-        <div className="bg-danger-subtle text-danger px-3 py-2 rounded fw-bold border border-danger small">
-          SYSTEM STATUS: HIGH ALERT
+        <div className="d-flex gap-2 align-items-center">
+          <button 
+            onClick={toggleSound}
+            className={`btn btn-sm ${soundEnabled ? 'btn-success' : 'btn-secondary'} d-flex align-items-center gap-1`}
+            title={soundEnabled ? "Disable Sound" : "Enable Sound"}
+          >
+            {soundEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+            {soundEnabled ? "Sound On" : "Sound Off"}
+          </button>
+          <div className="bg-danger-subtle text-danger px-3 py-2 rounded fw-bold border border-danger small">
+            SYSTEM STATUS: HIGH ALERT
+          </div>
         </div>
       </div>
 

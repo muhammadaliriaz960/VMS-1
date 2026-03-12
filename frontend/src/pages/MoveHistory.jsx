@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Play, Pause, RotateCcw, Search, ChevronRight, ChevronLeft } from "lucide-react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { Play, Pause, RotateCcw, Search, ChevronRight, ChevronLeft, MapPin } from "lucide-react";
 import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { useTracking } from "../context/TrackingContext"; // Path to your context file
@@ -17,6 +17,19 @@ const getVehicleIcon = (type) => {
   });
 };
 
+const VehicleListItem = React.memo(({ ba, fleetData, selectedBA, onClick }) => {
+  return (
+    <div onClick={onClick}
+         className={`p-2 px-3 mb-2 rounded border-start border-4 cursor-pointer transition ${selectedBA === ba ? 'bg-primary border-white' : 'bg-secondary opacity-50'}`}>
+      <div className="d-flex justify-content-between align-items-center">
+        <span className="fw-bold" style={{ letterSpacing: '1px' }}>{ba}</span>
+        <span className="badge bg-black text-white x-small" style={{ fontSize: '10px' }}>{fleetData[ba].type}</span>
+      </div>
+      <small className="d-block text-white-50">{fleetData[ba].unit}</small>
+    </div>
+  );
+});
+
 export default function ActiveMove() {
   const { fleetData, selectedBA, setSelectedBA, isLoadingReplay } = useTracking();
   
@@ -24,29 +37,55 @@ export default function ActiveMove() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(500);
+  const [speedMultiplier, setSpeedMultiplier] = useState(1); // 1x, 2x, 5x
   const [searchTerm, setSearchTerm] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [showLogs, setShowLogs] = useState(false); // New state to control logs visibility
   const timerRef = useRef(null);
+  const [plotZoomLevel, setPlotZoomLevel] = useState(20);
+  const [showVehicleHistory, setShowVehicleHistory] = useState(false); // New state to control vehicle history display
 
   // Derived data from Context
   const currentAsset = fleetData[selectedBA];
   const flightPath = currentAsset?.path || [];
   const currentPos = flightPath[currentIndex] || flightPath[0];
 
+  // Logs list filtered by date range
+  const logEntries = useMemo(() => {
+    if (!flightPath.length) return [];
 
-useEffect(() => {
-  if (!isPlaying) {
-    setCurrentIndex(flightPath.length - 1);
-  }
-}, [flightPath.length]);
+    const from = fromDate ? new Date(fromDate) : null;
+    const to = toDate ? new Date(`${toDate}T23:59:59`) : null;
+
+    return flightPath.filter((p) => {
+      if (!p.time) return true;
+      const t = new Date(p.time);
+      if (from && t < from) return false;
+      if (to && t > to) return false;
+      return true;
+    });
+  }, [flightPath, fromDate, toDate]);
+
+  // No longer automatically jumping to end when path length changes
+  // as this is a history replay page.
+  
   // Playback Logic
   useEffect(() => {
-    if (isPlaying && currentIndex < flightPath.length - 1) {
-      timerRef.current = setTimeout(() => setCurrentIndex(prev => prev + 1), playbackSpeed);
+    if (isPlaying && currentIndex < logEntries.length - 1) {
+      timerRef.current = setTimeout(() => setCurrentIndex(prev => prev + 1), playbackSpeed / speedMultiplier);
     } else {
       setIsPlaying(false);
     }
     return () => clearTimeout(timerRef.current);
-  }, [isPlaying, currentIndex, playbackSpeed, flightPath]);
+  }, [isPlaying, currentIndex, playbackSpeed, logEntries, speedMultiplier]);
+
+  // Filter fleet based on search
+  const filteredBAs = useMemo(() => 
+    Object.keys(fleetData).filter(ba => 
+      ba.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      fleetData[ba].unit.toLowerCase().includes(searchTerm.toLowerCase())
+    ), [fleetData, searchTerm]);
 
   // Handle Loading State
   if (isLoadingReplay) {
@@ -58,11 +97,20 @@ useEffect(() => {
     );
   }
 
-  // Filter fleet based on search
-  const filteredBAs = Object.keys(fleetData).filter(ba => 
-    ba.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    fleetData[ba].unit.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Debug: Log the current state
+  console.log('Active Move Debug:', {
+    fleetData,
+    fleetDataKeys: Object.keys(fleetData),
+    selectedBA,
+    filteredBAs,
+    isLoadingReplay
+  });
+
+  // Handle plot button click
+  const handlePlotClick = (point, index) => {
+    setCurrentIndex(index);
+    setIsPlaying(false);
+  };
 
   return (
     <div className="d-flex border-2 shadow-sm" style={{ height: "100vh", overflow: "hidden" }}>
@@ -93,16 +141,33 @@ useEffect(() => {
           </div>
 
           <div className="overflow-auto custom-scrollbar flex-grow-1 pe-2" style={{ maxHeight: 'calc(100vh - 150px)' }}>
-            {filteredBAs.map(ba => (
-              <div key={ba} onClick={() => { setSelectedBA(ba); setCurrentIndex(0); setIsPlaying(false); }}
-                   className={`p-2 px-3 mb-2 rounded border-start border-4 cursor-pointer transition ${selectedBA === ba ? 'bg-primary border-white' : 'bg-secondary opacity-50'}`}>
-                <div className="d-flex justify-content-between align-items-center">
-                  <span className="fw-bold" style={{ letterSpacing: '1px' }}>{ba}</span>
-                  <span className="badge bg-black text-white x-small" style={{ fontSize: '10px' }}>{fleetData[ba].type}</span>
+            {filteredBAs.length === 0 ? (
+              <div className="text-center text-white-50 py-4">
+                <div className="mb-3">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M12 6v6l4 2"></path>
+                  </svg>
                 </div>
-                <small className="d-block text-white-50">{fleetData[ba].unit}</small>
+                <div className="fw-bold">No Active Vehicles</div>
+                <small>No vehicles with active movement sanctions found</small>
               </div>
-            ))}
+            ) : (
+              filteredBAs.map(ba => (
+                <VehicleListItem 
+                  key={ba} 
+                  ba={ba} 
+                  fleetData={fleetData} 
+                  selectedBA={selectedBA} 
+                  onClick={() => { 
+                    setSelectedBA(ba); 
+                    setCurrentIndex(0); 
+                    setIsPlaying(false); 
+                    setShowVehicleHistory(true); // Show vehicle history when clicked
+                  }}
+                />
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -115,104 +180,233 @@ useEffect(() => {
           {isSidebarOpen ? <ChevronLeft size={20}/> : <ChevronRight size={20}/>}
         </button>
 
-        {/* 1. Header */}
-        <div className="bg-black border-2 border-white border-bottom text-white p-3 d-flex align-items-center gap-4 shadow" style={{ zIndex: 1001 }}>
-          {currentAsset && (
-            <div>
-              <h5 className="mb-0 fw-bold">{selectedBA} <small className="text-white">| {currentAsset.name}</small></h5>
-              <div className="d-flex gap-3 mt-1">
-                  <span className="badge bg-warning text-dark">{currentAsset.unit}</span>
-                  <span className="badge bg-secondary">Active Sanction</span>
+        {showVehicleHistory && selectedBA && (
+          <div className="bg-black border-2 border-white border-bottom text-white p-3 d-flex align-items-center gap-4 shadow" style={{ zIndex: 1001 }}>
+            {currentAsset && (
+              <div className="table-responsive">
+                <h5 className="mb-0 fw-bold">{selectedBA} <small className="text-white">| {currentAsset.name}</small></h5>
+                <div className="d-flex gap-3 mt-1">
+                    <span className="badge bg-warning text-dark">{currentAsset.unit}</span>
+                    <span className="badge bg-secondary">Active Sanction</span>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
         {/* 2. Map */}
         <div className="flex-grow-1 position-relative">
-          {flightPath.length > 0 ? (
+          {showVehicleHistory && selectedBA && flightPath.length > 0 ? (
+            // Show vehicle history map when vehicle is selected
             <MapContainer 
-  center={[currentPos.lat, currentPos.lng]} 
-  zoom={19} 
-  className="h-100 w-100"
->
-  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-  
-  {/* 1. Ghost line (Full History) */}
-  <Polyline positions={flightPath.map(p => [p.lat, p.lng])} color="#4f46e5" weight={2} dashArray="10, 10" opacity={0.4} />
-  
-  {/* 2. Live Active Line (Solid) */}
-  <Polyline positions={flightPath.slice(0, currentIndex + 1).map(p => [p.lat, p.lng])} color="#22c55e" weight={5} />
-  
-  {/* 3. The Marker - Using a unique 'key' forces React to re-render it if it gets stuck */}
-  <Marker 
-    key={`${selectedBA}-${currentPos.lat}-${currentPos.lng}`} 
-    position={[currentPos.lat, currentPos.lng]} 
-    icon={getVehicleIcon(currentAsset?.type)}
-  >
-    <Popup>
-      <strong>{selectedBA}</strong><br/>
-      Speed: {currentPos.speed} km/h<br/>
-      Lat: {currentPos.lat.toFixed(6)}<br/>
-      Lng: {currentPos.lng.toFixed(6)}
-    </Popup>
-  </Marker>
-  
-  {/* 4. The Recenter Hook */}
-  <RecenterMap lat={currentPos.lat} lng={currentPos.lng} />
-</MapContainer>
+              center={[currentPos.lat, currentPos.lng]} 
+              zoom={19} 
+              className="h-100 w-100"
+            >
+              <TileLayer 
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              />
+              
+              {/* 1. Ghost line (Full History) */}
+              <Polyline positions={flightPath.map(p => [p.lat, p.lng])} color="#4f46e5" weight={2} dashArray="10, 10" opacity={0.4} />
+              
+              {/* 2. Live Active Line (Solid) */}
+              <Polyline positions={flightPath.slice(0, currentIndex + 1).map(p => [p.lat, p.lng])} color="#22c55e" weight={5} />
+              
+              {/* 3. The Marker */}
+              <Marker 
+                key={`${selectedBA}-${currentPos.lat}-${currentPos.lng}`} 
+                position={[currentPos.lat, currentPos.lng]} 
+                icon={getVehicleIcon(currentAsset?.type)}
+              >
+                <Popup>
+                  <strong>{selectedBA}</strong><br/>
+                  Speed: {currentPos.speed} km/h<br/>
+                  Lat: {currentPos.lat.toFixed(6)}<br/>
+                  Lng: {currentPos.lng.toFixed(6)}
+                </Popup>
+              </Marker>
+              
+              {/* 4. The Recenter Hook */}
+              <RecenterMap lat={currentPos.lat} lng={currentPos.lng} zoomLevel={plotZoomLevel} />
+            </MapContainer>
           ) : (
-            <div className="h-100 d-flex align-items-center justify-content-center bg-dark text-white">
-              No movement data recorded for this vehicle.
-            </div>
+            // Show simple map when no vehicle is selected
+            <MapContainer 
+              center={[32.5, 73.0]} 
+              zoom={7} 
+              className="h-100 w-100"
+            >
+              <TileLayer 
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              />
+              
+              {/* Simple instruction overlay */}
+              <div style={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                background: 'rgba(0,0,0,0.8)',
+                color: 'white',
+                padding: '20px 30px',
+                borderRadius: '10px',
+                textAlign: 'center',
+                zIndex: 1000,
+                fontSize: '16px',
+                fontWeight: 'bold'
+              }}>
+                <div style={{ marginBottom: '10px' }}>🗺️ Active Move Map</div>
+                <div style={{ fontSize: '14px', fontWeight: 'normal' }}>
+                  Click on a vehicle BA number from the sidebar to view its movement history
+                </div>
+              </div>
+            </MapContainer>
           )}
         </div>
 
         {/* 3. Replay Controller */}
-        <div className="bg-white border-top p-3 px-5 shadow-lg" style={{ zIndex: 1001 }}>
-          <div className="row align-items-center">
-            <div className="col-auto d-flex gap-2">
-              <button className={`btn ${isPlaying ? 'btn-outline-danger' : 'btn-primary'} rounded-circle p-2`} onClick={() => setIsPlaying(!isPlaying)}>
-                {isPlaying ? <Pause size={24} /> : <Play size={24} />}
-              </button>
-              <button className="btn btn-light rounded-circle p-2" onClick={() => {setCurrentIndex(0); setIsPlaying(false);}}>
-                <RotateCcw size={24} />
-              </button>
+        {showVehicleHistory && selectedBA && flightPath.length > 0 && (
+          <div className="bg-white border-top p-3 px-4 shadow-lg" style={{ zIndex: 1001 }}>
+            <div className="row align-items-center gy-2">
+              <div className="col-auto d-flex gap-2">
+                <button
+                  className={`btn ${isPlaying ? "btn-outline-danger" : "btn-primary"} rounded-circle p-2`}
+                  onClick={() => setIsPlaying(!isPlaying)}
+                >
+                  {isPlaying ? <Pause size={24} /> : <Play size={24} />}
+                </button>
+                <button
+                  className="btn btn-light rounded-circle p-2"
+                  onClick={() => {
+                    setCurrentIndex(0);
+                    setIsPlaying(false);
+                  }}
+                >
+                  <RotateCcw size={24} />
+                </button>
+              </div>
+
+              {/* Date Range Filters */}
+              <div className="col-auto d-flex align-items-center gap-2">
+                <label className="form-label form-label-sm mb-0">From</label>
+                <input 
+                  type="date" 
+                  className="form-control form-control-sm" 
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                />
+                <label className="form-label form-label-sm mb-0">To</label>
+                <input 
+                  type="date" 
+                  className="form-control form-control-sm" 
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                />
+              </div>
+
+              {/* Speed Control */}
+              <div className="col-auto">
+                <div className="dropdown">
+                  <button className="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                    Speed: {speedMultiplier}x
+                  </button>
+                  <ul className="dropdown-menu">
+                    {[1, 2, 5].map(m => (
+                      <li key={m}><a className="dropdown-item" href="#" onClick={() => setSpeedMultiplier(m)}>{m}x</a></li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              <div className="col px-4">
+                <input
+                  type="range"
+                  className="form-range"
+                  min="0"
+                  max={logEntries.length - 1}
+                  value={currentIndex}
+                  onChange={(e) => setCurrentIndex(Number(e.target.value))}
+                />
+              </div>
+
+              <div className="col-auto">
+                <button 
+                  onClick={() => setShowLogs(!showLogs)} 
+                  className="btn btn-sm btn-outline-secondary"
+                >
+                  {showLogs ? "Hide Logs" : "Show Logs"}
+                </button>
+              </div>
             </div>
-            <div className="col px-4">
-              <input 
-                type="range" 
-                className="form-range" 
-                max={Math.max(0, flightPath.length - 1)} 
-                value={currentIndex} 
-                onChange={(e) => setCurrentIndex(parseInt(e.target.value))} 
-              />
-            </div>
-            <div className="col-auto">
-              <select className="form-select form-select-sm fw-bold border-primary" onChange={(e) => setPlaybackSpeed(parseInt(e.target.value))}>
-                <option value="500">1.0x</option>
-                <option value="200">2.5x</option>
-                <option value="50">10.0x</option>
-              </select>
-            </div>
+
+            {showLogs && (
+              <div className="bg-light border-top px-4 py-3 mt-3" style={{ maxHeight: "260px", overflowY: "auto" }}>
+                <div className="d-flex justify-content-between align-items-center mb-2">
+                  <h6 className="mb-0 fw-bold">Movement Logs</h6>
+                  <small className="text-muted">
+                    {logEntries.length} point{logEntries.length === 1 ? "" : "s"}
+                  </small>
+                </div>
+                
+                {logEntries.length === 0 ? (
+                  <div className="text-muted small">No logs found for selected date range.</div>
+                ) : (
+                  <table className="table table-sm table-hover mb-0">
+                    <thead className="table-light">
+                      <tr className="small text-uppercase">
+                        <th style={{ width: "35%" }}>Time</th>
+                        <th style={{ width: "20%" }}>Lat</th>
+                        <th style={{ width: "20%" }}>Lng</th>
+                        <th style={{ width: "15%" }}>Speed</th>
+                        <th style={{ width: "10%" }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {logEntries.map((p, idx) => {
+                        const originalIndex = flightPath.findIndex(fp => 
+                          fp.lat === p.lat && fp.lng === p.lng && fp.time === p.time
+                        );
+                        return (
+                          <tr key={idx} className="small">
+                            <td>{p.time ? new Date(p.time).toLocaleString() : "-"}</td>
+                            <td>{p.lat?.toFixed ? p.lat.toFixed(5) : p.lat}</td>
+                            <td>{p.lng?.toFixed ? p.lng.toFixed(5) : p.lng}</td>
+                            <td>{p.speed} km/h</td>
+                            <td>
+                              <button 
+                                onClick={() => handlePlotClick(p, originalIndex)}
+                                className="btn btn-sm btn-primary p-1"
+                                title="Plot on map"
+                              >
+                                <MapPin size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
 }
 
-function RecenterMap({ lat, lng, isPlaying }) {
+function RecenterMap({ lat, lng, zoomLevel }) {
   const map = useMap();
   useEffect(() => {
     if (lat && lng) {
-      // If playing, use panTo for smoother flow. If jumping/seeking, use flyTo.
-      if (isPlaying) {
-        map.panTo([lat, lng], { animate: true, duration: 0.5 });
-      } else {
-        map.setView([lat, lng], map.getZoom());
-      }
+      // Use specified zoom level when not playing, default to current zoom
+      const targetZoom = zoomLevel || map.getZoom();
+      map.setView([lat, lng], targetZoom);
     }
-  }, [lat, lng, map, isPlaying]);
+  }, [lat, lng, map, zoomLevel]);
   return null;
 }

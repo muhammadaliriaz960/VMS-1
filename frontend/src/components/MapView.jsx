@@ -13,8 +13,8 @@ export default function MapView({ vehicles }) { // Changed prop name to 'vehicle
     // Initialize map only once
     if (!mapRef.current) {
       mapRef.current = L.map("map", { center: [33.7, 72.8], zoom: 9 });
-      L.tileLayer("https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png", {
-        attribution: '&copy; OpenStreetMap contributors'
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       }).addTo(mapRef.current);
     }
   }, []);

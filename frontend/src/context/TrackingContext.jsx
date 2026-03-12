@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { API_URL, WS_URL } from '../config';
 
 const TrackingContext = createContext();
 
@@ -19,15 +20,15 @@ export const TrackingProvider = ({ children }) => {
     const fetchActiveMoveData = useCallback(async () => {
         setIsLoadingReplay(true);
         try {
-            // Fetch list of active sanctions
-            const sancRes = await fetch('http://localhost:5000/api/sidebar/move-sanctions');
-            const sanctions = await sancRes.json();
+            console.log('[DEBUG] Fetching move-sanctions...');
+            const sancRes = await fetch(`${API_URL}/api/sidebar/move-sanctions`);
+            if (!sancRes.ok) throw new Error(`API error: ${sancRes.status}`);
             
+            const sanctions = await sancRes.json();
             const freshFleet = {};
 
-            // For each sanctioned vehicle, fetch its full path
             for (const sanc of sanctions) {
-                const pathRes = await fetch(`http://localhost:5000/api/path/${sanc.vehicle_id}`);
+                const pathRes = await fetch(`${API_URL}/api/path-full/${sanc.vehicle_id}`);
                 const pathPoints = await pathRes.json();
                 
                 freshFleet[sanc.ba] = {
@@ -45,22 +46,27 @@ export const TrackingProvider = ({ children }) => {
             }
 
             setFleetData(freshFleet);
-            if (sanctions.length > 0 && !selectedBA) {
-                setSelectedBA(sanctions[0].ba);
-            }
+            
+            // Functional update to avoid dependency on selectedBA
+            setSelectedBA(current => {
+                if (!current && sanctions.length > 0) {
+                    return sanctions[0].ba;
+                }
+                return current;
+            });
         } catch (err) {
-            console.error("Replay Data Fetch Error:", err);
+            console.error("[DEBUG] Replay Data Fetch Error:", err);
         } finally {
             setIsLoadingReplay(false);
         }
-    }, [selectedBA]);
+    }, []); // No dependencies! Now it only fetches on mount or manual refresh.
 
     /**
      * 2. MILEAGE HISTORY FETCH
      */
     const fetchHistory = useCallback(async () => {
         try {
-            const response = await fetch('http://localhost:5000/api/sidebar/move-history');
+            const response = await fetch(`${API_URL}/api/sidebar/move-history`);
             const data = await response.json();
             
             const formatted = data.map(row => ({
@@ -71,7 +77,8 @@ export const TrackingProvider = ({ children }) => {
                 lastLat: row.lastLat,
                 lastLng: row.lastLng,
                 total: row.total || "0.00",
-                currentSpeed: row.currentSpeed ? `${row.currentSpeed} km/h` : "0 km/h"
+                currentSpeed: row.currentSpeed ? `${row.currentSpeed} km/h` : "0 km/h",
+                completedAt: row.completed_at
             }));
             
             setMileageLogs(formatted);
@@ -86,8 +93,10 @@ export const TrackingProvider = ({ children }) => {
     useEffect(() => {
         fetchHistory(); 
         fetchActiveMoveData(); // Initialize Replay paths
+    }, [fetchHistory, fetchActiveMoveData]);
 
-        const socket = new WebSocket('ws://localhost:8080');
+    useEffect(() => {
+        const socket = new WebSocket(WS_URL);
         
         socket.onmessage = (event) => {
             const incoming = JSON.parse(event.data);
@@ -119,7 +128,7 @@ export const TrackingProvider = ({ children }) => {
         };
         
         return () => socket.close();
-    }, [fetchHistory, fetchActiveMoveData]);
+    }, []); // Only run on mount
 
     return (
         <TrackingContext.Provider value={{ 

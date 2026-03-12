@@ -17,7 +17,7 @@ export default function Architecture() {
         <div className="col-md-3">
           <div className="card border-0 shadow-sm p-4 text-center bg-dark border-top border-success border-4 h-100">
             <div className="mb-3 text-success"><Smartphone size={40} /></div>
-            <h6 className="fw-bold text-white">Dual-IP VT100 Tracker</h6>
+            <h6 className="fw-bold text-white">Dual-IP VT150L Tracker</h6>
             <p className="small text-secondary mb-3">Hardware-configured to multicast packets to redundant HQ and Station IPs.</p>
             <div className="bg-black p-2 rounded text-start">
                 <div className="text-info font-monospace" style={{fontSize: '10px'}}>MAIN HQ: 164.221.6.66</div>
